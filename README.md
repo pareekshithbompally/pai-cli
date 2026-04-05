@@ -1,12 +1,18 @@
-# pai-cli
+<p align="center">
+  <h1 align="center">pai-cli</h1>
+  <p align="center">Terminal-first observability CLI for AI coding workflows — inspect sessions, messages, plans, billing, cache, and diagnostics across Claude, Codex, Copilot, Gemini, and Vibe.</p>
+</p>
 
-`pai` is a terminal-first observability CLI for AI coding workflows. It brings session inspection, billing visibility, cache management, and environment diagnostics into one packaged tool.
+<p align="center">
+  <img src="https://img.shields.io/badge/Python-3.10+-3776AB?logo=python&logoColor=white" alt="Python" />
+  <img src="https://img.shields.io/badge/pipx-2C7BE5?logo=python&logoColor=white" alt="pipx" />
+  <img src="https://img.shields.io/badge/Claude-D97757?logo=anthropic&logoColor=white" alt="Claude" />
+  <img src="https://img.shields.io/badge/OpenAI-412991?logo=openai&logoColor=white" alt="OpenAI" />
+  <img src="https://img.shields.io/badge/GitHub_Copilot-181717?logo=github&logoColor=white" alt="GitHub Copilot" />
+  <img src="https://img.shields.io/badge/Google_Gemini-8E75B2?logo=googlegemini&logoColor=white" alt="Google Gemini" />
+</p>
 
-## tooling badge
-
-![Python](https://img.shields.io/badge/python-3.10%2B-blue)
-![pipx](https://img.shields.io/badge/install-pipx-2C7BE5)
-![CLI](https://img.shields.io/badge/interface-terminal-111111)
+---
 
 ## What it does
 
