@@ -11,7 +11,9 @@ from ..agents import get_adapters
 from ..agents.catalog import get_agent_location
 from ..common.cache import SessionCache
 from ..common.formatting import agent_style, console, fmt_ts, make_table, print_table, truncate
+from ..common.types import format_identity_display
 from .agent_filters import agent_filter_option, resolve_agents
+from .sync import ensure_synced
 
 
 @click.command("messages")
@@ -34,15 +36,27 @@ def command(file: str, agent_names: tuple[str, ...]) -> None:
 
     # Look up cached metadata for this session
     cache = SessionCache()
+    ensure_synced(cache, [adapter.name], force=False)
     rows_meta = cache._conn.execute(
-        "SELECT session_id, account, project, agent FROM sessions WHERE file_path = ?",
+        """
+        SELECT session_id, project, agent, identity_value, identity_kind, identity_label
+        FROM sessions
+        WHERE file_path = ?
+        """,
         (file,),
     ).fetchone()
 
     if rows_meta:
         agent_name = rows_meta["agent"]
         console.print(Text.assemble(("  Agent   : ", "none"), (agent_name, f"bold {agent_style(agent_name)}")))
-        click.echo(f"  Account : {rows_meta['account']}")
+        click.echo(
+            "  Identity: "
+            + format_identity_display(
+                rows_meta["identity_value"],
+                rows_meta["identity_kind"],
+                label=rows_meta["identity_label"],
+            )
+        )
         click.echo(f"  Project : {rows_meta['project']}")
         click.echo(f"  Session : {rows_meta['session_id']}")
     else:

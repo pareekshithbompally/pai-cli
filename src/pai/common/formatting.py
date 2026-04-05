@@ -114,7 +114,7 @@ TRUNCATE_WIDTHS: dict[str, int] = {
     "title":    44,
     "path":     48,
     "message":  80,
-    "account":  10,
+    "account":  48,
 }
 
 

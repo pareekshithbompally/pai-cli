@@ -8,10 +8,10 @@ Event model (per session JSONL):
   - turn_context      : one per user turn; carries cwd. Count = msg_count.
   - response_item     : role=user, first after turn_context = real user message
   - event_msg         : type=token_count carries cumulative token totals (take last)
-  - session_meta      : first event; carries cwd as fallback project name
+  - session_meta      : first event; carries cwd and model provider as fallback context
 
 Tokens    : event_msg type=token_count → payload.info.total_token_usage (last seen)
-Account   : always "TatvaCare" (single account)
+Identity  : provider from session metadata when available
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ import json
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ..common.accounts import fixed_account
+from ..common.accounts import provider_identity, unknown_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
@@ -56,6 +56,7 @@ class CodexAdapter(AgentAdapter):
         first_ts = last_ts = None
         in_tokens = out_tokens = 0
         cwd = ""
+        model_provider = ""
         last_usage: Optional[dict] = None
 
         try:
@@ -77,6 +78,10 @@ class CodexAdapter(AgentAdapter):
                     # session_meta carries cwd as fallback project
                     if event_type == "session_meta" and not cwd:
                         cwd = payload.get("cwd", "")
+                    if event_type == "session_meta" and not model_provider:
+                        provider = payload.get("model_provider", "")
+                        if isinstance(provider, str):
+                            model_provider = provider.strip()
 
                     # Each turn_context = one real user interaction
                     elif event_type == "turn_context":
@@ -101,18 +106,22 @@ class CodexAdapter(AgentAdapter):
             out_tokens = (last_usage.get("output_tokens") or 0) + (last_usage.get("reasoning_output_tokens") or 0)
 
         display_project = thread or _abbreviate_path(cwd) or _project_from_path(path)
+        identity = provider_identity(model_provider, "codex-session-meta") if model_provider else unknown_identity("codex-none")
 
         return SessionRecord(
             agent      = self.name,
             file_path  = str(path),
             session_id = session_id,
-            account    = fixed_account(self.name),
             project    = display_project,
             msg_count  = msg_count,
             first_ts   = first_ts,
             last_ts    = last_ts,
             in_tokens  = in_tokens,
             out_tokens = out_tokens,
+            identity_value  = identity.value,
+            identity_kind   = identity.kind,
+            identity_source = identity.source,
+            identity_label  = identity.label,
         )
 
     def iter_messages(self, path: Path) -> Iterator[MessageRecord]:

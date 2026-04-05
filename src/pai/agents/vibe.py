@@ -4,7 +4,7 @@ Sessions  : ~/.vibe/logs/session/<session_dir>/messages.jsonl
 Metadata  : ~/.vibe/logs/session/<session_dir>/meta.json
 Plans     : none
 Tokens    : meta.stats.{session_prompt_tokens,context_tokens,session_completion_tokens}
-Account   : always "Personal" (single account)
+Identity  : provider from ~/.vibe/config.toml when available
 """
 
 from __future__ import annotations
@@ -12,13 +12,15 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import Iterator, Optional
+import tomllib
 
-from ..common.accounts import fixed_account
+from ..common.accounts import provider_identity, unknown_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
 
 _LOCATION = get_agent_location("vibe")
+CONFIG_FILE = _LOCATION.root_dir / "config.toml"
 
 
 class VibeAdapter(AgentAdapter):
@@ -31,6 +33,7 @@ class VibeAdapter(AgentAdapter):
         meta = _read_meta(path)
         session_id = _session_id(path, meta)
         project = _project_name(meta)
+        identity = _read_vibe_identity(CONFIG_FILE)
 
         msg_count = 0
         try:
@@ -55,13 +58,16 @@ class VibeAdapter(AgentAdapter):
             agent=self.name,
             file_path=str(path),
             session_id=session_id,
-            account=fixed_account(self.name),
             project=project,
             msg_count=msg_count,
             first_ts=meta.get("start_time") if isinstance(meta, dict) else None,
             last_ts=meta.get("end_time") if isinstance(meta, dict) else None,
             in_tokens=in_tokens,
             out_tokens=out_tokens,
+            identity_value=identity.value,
+            identity_kind=identity.kind,
+            identity_source=identity.source,
+            identity_label=identity.label,
         )
 
     def iter_messages(self, path: Path) -> Iterator[MessageRecord]:
@@ -126,3 +132,26 @@ def _abbreviate_path(path: str) -> str:
     if len(path) > 36:
         path = path[:10] + "…" + path[-24:]
     return path
+
+
+def _read_vibe_identity(config_path: Path):
+    if not config_path.exists():
+        return unknown_identity("vibe-none")
+    try:
+        with config_path.open("rb") as f:
+            data = tomllib.load(f)
+    except (OSError, tomllib.TOMLDecodeError):
+        return unknown_identity("vibe-none")
+
+    if not isinstance(data, dict):
+        return unknown_identity("vibe-none")
+
+    for key in ("provider", "model"):
+        section = data.get(key)
+        if not isinstance(section, dict):
+            continue
+        provider = section.get("provider")
+        if isinstance(provider, str) and provider.strip():
+            return provider_identity(provider, "vibe-config")
+
+    return unknown_identity("vibe-none")

@@ -1,4 +1,4 @@
-"""stats command — aggregate session metrics per account."""
+"""stats command — aggregate session metrics per identity."""
 
 from __future__ import annotations
 
@@ -15,14 +15,14 @@ from .sync import ensure_synced
 
 @click.command("stats")
 @click.option("--account", default=None, metavar="LABEL",
-              help="Filter by account label.")
+              help="Filter by identity or account label.")
 @click.option("--project", default=None, metavar="KEYWORD",
               help="Filter by project name.")
 @click.option("--no-cache", is_flag=True, default=False,
               help="Force re-parse all sessions.")
 @agent_filter_option("Filter by one or more agents. Default: all agents.")
 def command(account: str, project: str, no_cache: bool, agent_names: tuple[str, ...]) -> None:
-    """Aggregate session stats per account."""
+    """Aggregate session stats per identity."""
     agents = resolve_agents(agent_names)
     cache = SessionCache()
 
@@ -35,12 +35,12 @@ def command(account: str, project: str, no_cache: bool, agent_names: tuple[str, 
 
     multi = len(agents) > 1
 
-    # Aggregate: key = (agent, account) if multi-agent else (account,)
+    # Aggregate: key = (agent, identity) if multi-agent else (identity,)
     buckets: dict[tuple, dict] = defaultdict(lambda: {
         "sessions": 0, "msgs": 0, "in_tok": 0, "out_tok": 0
     })
     for r in results:
-        key = (r.agent, r.account) if multi else (r.account,)
+        key = (r.agent, r.identity_display) if multi else (r.identity_display,)
         b = buckets[key]
         b["sessions"] += 1
         b["msgs"]     += r.msg_count
@@ -49,7 +49,7 @@ def command(account: str, project: str, no_cache: bool, agent_names: tuple[str, 
 
     table = make_table(
         *([("Agent")] if multi else []),
-        "Account", "Sessions", "Messages", "In Tokens", "Out Tokens",
+        "Identity", "Sessions", "Messages", "In Tokens", "Out Tokens",
     )
 
     total_sessions = total_msgs = total_in = total_out = 0

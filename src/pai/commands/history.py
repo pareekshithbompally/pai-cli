@@ -24,7 +24,7 @@ from .sync import ensure_synced
 @click.option("-n", default=10, show_default=True, metavar="N",
               help="Sessions to show (0 = all).")
 @click.option("--account", default=None, metavar="LABEL",
-              help="Filter by account label.")
+              help="Filter by identity or account label.")
 @click.option("--project", default=None, metavar="KEYWORD",
               help="Filter by project name.")
 @click.option("--no-cache", is_flag=True, default=False,
@@ -47,7 +47,7 @@ def command(n: int, account: str, project: str, no_cache: bool, agent_names: tup
 
     table = make_table(
         *([("Agent")] if multi else []),
-        "Account", "Project", "Session", "Msgs",
+        "Identity", "Project", "Session", "Msgs",
         "First (IST)", "Last (IST)", "In Tok", "Out Tok",
     )
 
@@ -67,7 +67,7 @@ def _build_row(r: SessionRecord, include_agent: bool) -> list[str | Text]:
     if include_agent:
         row.append(Text(r.agent, style=f"bold {style}"))
     row += [
-        Text(truncate(r.account, TRUNCATE_WIDTHS["account"]), style="dim"),
+        Text(truncate(r.identity_display, TRUNCATE_WIDTHS["account"]), style="dim"),
         Text(truncate(r.project, TRUNCATE_WIDTHS["project"]), style=style),
         Text(r.session_id[:8], style="dim"),
         str(r.msg_count),

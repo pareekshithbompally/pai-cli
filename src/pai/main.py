@@ -6,6 +6,8 @@ Usage:
   pai sessions <command> [options]
   pai billing  <command> [options]
   pai cache    <command> [options]
+  pai identity <command> [options]
+  pai setup    <command> [options]
   pai doctor
 
 Examples:
@@ -13,6 +15,9 @@ Examples:
   pai sessions stats --agent copilot
   pai sessions messages ~/.claude/projects/.../abc123.jsonl
   pai sessions plans --agent codex
+  pai identity alias set --agent claude tech@tatvacare.in Work
+  pai identity clear --agent claude
+  pai setup identity
   pai billing report --provider openai
   pai cache info
   pai doctor
@@ -23,7 +28,7 @@ from __future__ import annotations
 import click
 
 from .billing import billing_group
-from .commands import cache_group, doctor_cmd, sessions_group
+from .commands import cache_group, doctor_cmd, identity_group, sessions_group, setup_group
 
 @click.group()
 def cli() -> None:
@@ -32,7 +37,9 @@ def cli() -> None:
 
 cli.add_command(sessions_group)
 cli.add_command(cache_group)
+cli.add_command(identity_group)
 cli.add_command(billing_group)
+cli.add_command(setup_group)
 cli.add_command(doctor_cmd)
 
 

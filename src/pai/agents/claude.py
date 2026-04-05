@@ -1,7 +1,7 @@
 """Claude Code agent adapter.
 
 Sessions  : ~/.claude/projects/**/*.jsonl
-Accounts  : ~/.claude/custom-user-work/session-accounts.jsonl
+Accounts  : optional session->email map file
 Plans     : ~/.claude/plans/*.md
 Tokens    : per-response usage.{input,cache_creation_input,cache_read_input,output}_tokens
 """
@@ -12,7 +12,7 @@ import json
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ..common.accounts import load_claude_accounts, resolve_claude_account
+from ..common.accounts import load_claude_accounts, resolve_claude_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
@@ -43,7 +43,7 @@ class ClaudeAdapter(AgentAdapter):
 
     def parse_session(self, path: Path) -> Optional[SessionRecord]:
         session_id = path.stem
-        account    = resolve_claude_account(session_id, self.accounts)
+        identity   = resolve_claude_identity(session_id, self.accounts)
         project    = _abbreviate_project(path.parent.name)
 
         msg_count = 0
@@ -80,13 +80,16 @@ class ClaudeAdapter(AgentAdapter):
             agent      = self.name,
             file_path  = str(path),
             session_id = session_id,
-            account    = account,
             project    = project,
             msg_count  = msg_count,
             first_ts   = first_ts,
             last_ts    = last_ts,
             in_tokens  = in_tokens,
             out_tokens = out_tokens,
+            identity_value  = identity.value,
+            identity_kind   = identity.kind,
+            identity_source = identity.source,
+            identity_label  = identity.label,
         )
 
     def iter_messages(self, path: Path) -> Iterator[MessageRecord]:

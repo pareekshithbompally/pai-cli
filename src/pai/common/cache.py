@@ -18,6 +18,7 @@ import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
+from .identity_store import IdentityStore
 from .paths import app_cache_path
 from .types import SessionRecord
 
@@ -35,6 +36,10 @@ CREATE TABLE IF NOT EXISTS sessions (
     file_size   INTEGER NOT NULL,
     session_id  TEXT    NOT NULL,
     account     TEXT    NOT NULL,
+    identity_value  TEXT    NOT NULL DEFAULT '—',
+    identity_kind   TEXT    NOT NULL DEFAULT 'none',
+    identity_source TEXT    NOT NULL DEFAULT 'none',
+    identity_label  TEXT,
     project     TEXT    NOT NULL,
     msg_count   INTEGER NOT NULL DEFAULT 0,
     first_ts    TEXT,
@@ -53,7 +58,7 @@ class SessionCache:
         db_path.parent.mkdir(parents=True, exist_ok=True)
         self._conn = sqlite3.connect(str(db_path))
         self._conn.row_factory = sqlite3.Row
-        self._conn.executescript(_SCHEMA)
+        _ensure_schema(self._conn)
         self._conn.commit()
 
     # ── Sync ─────────────────────────────────────────────────────────────────
@@ -169,6 +174,76 @@ class SessionCache:
         ).fetchall()
         return [dict(r) for r in rows]
 
+    def apply_identity_overrides(self, agents: Optional[list[str]] = None) -> int:
+        store = IdentityStore()
+        try:
+            rows = []
+            if agents:
+                for agent in agents:
+                    rows.extend(store.latest_identities(agent))
+                alias_map = {}
+                for agent in agents:
+                    alias_map.update(store.get_alias_map(agent))
+            else:
+                rows = store.latest_identities()
+                alias_map = store.get_alias_map()
+        finally:
+            store.close()
+
+        updated = 0
+        for row in rows:
+            identity_value = row["identity_value"]
+            identity_label = alias_map.get((row["agent"], identity_value))
+            cur = self._conn.execute(
+                """
+                UPDATE sessions
+                SET identity_value = ?,
+                    identity_kind = ?,
+                    identity_source = ?,
+                    identity_label = ?,
+                    account = COALESCE(?, ?)
+                WHERE agent = ? AND session_id = ?
+                """,
+                (
+                    identity_value,
+                    row["identity_kind"],
+                    row["source"],
+                    identity_label,
+                    identity_label,
+                    identity_value,
+                    row["agent"],
+                    row["session_id"],
+                ),
+            )
+            updated += cur.rowcount
+
+        if agents:
+            placeholders = ",".join("?" * len(agents))
+            session_rows = self._conn.execute(
+                f"SELECT file_path, agent, identity_value FROM sessions WHERE agent IN ({placeholders})",
+                agents,
+            ).fetchall()
+        else:
+            session_rows = self._conn.execute(
+                "SELECT file_path, agent, identity_value FROM sessions"
+            ).fetchall()
+
+        for row in session_rows:
+            identity_label = alias_map.get((row["agent"], row["identity_value"]))
+            cur = self._conn.execute(
+                """
+                UPDATE sessions
+                SET identity_label = ?,
+                    account = COALESCE(?, identity_value)
+                WHERE file_path = ?
+                """,
+                (identity_label, identity_label, row["file_path"]),
+            )
+            updated += cur.rowcount
+        if updated:
+            self._conn.commit()
+        return updated
+
     # ── Internal ──────────────────────────────────────────────────────────────
 
     def _upsert(
@@ -183,15 +258,21 @@ class SessionCache:
             """
             INSERT INTO sessions
                 (agent, file_path, file_mtime, file_size,
-                 session_id, account, project,
+                 session_id, account,
+                 identity_value, identity_kind, identity_source, identity_label,
+                 project,
                  msg_count, first_ts, last_ts,
                  in_tokens, out_tokens)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(file_path) DO UPDATE SET
                 file_mtime  = excluded.file_mtime,
                 file_size   = excluded.file_size,
                 session_id  = excluded.session_id,
                 account     = excluded.account,
+                identity_value  = excluded.identity_value,
+                identity_kind   = excluded.identity_kind,
+                identity_source = excluded.identity_source,
+                identity_label  = excluded.identity_label,
                 project     = excluded.project,
                 msg_count   = excluded.msg_count,
                 first_ts    = excluded.first_ts,
@@ -201,7 +282,9 @@ class SessionCache:
             """,
             (
                 agent, str(path), mtime, size,
-                rec.session_id, rec.account, rec.project,
+                rec.session_id, rec.account,
+                rec.identity_value, rec.identity_kind, rec.identity_source, rec.identity_label,
+                rec.project,
                 rec.msg_count, rec.first_ts, rec.last_ts,
                 rec.in_tokens, rec.out_tokens,
             ),
@@ -213,11 +296,46 @@ def _row_to_record(row: sqlite3.Row) -> SessionRecord:
         agent      = row["agent"],
         file_path  = row["file_path"],
         session_id = row["session_id"],
-        account    = row["account"],
         project    = row["project"],
         msg_count  = row["msg_count"],
         first_ts   = row["first_ts"],
         last_ts    = row["last_ts"],
         in_tokens  = row["in_tokens"],
         out_tokens = row["out_tokens"],
+        identity_value  = row["identity_value"],
+        identity_kind   = row["identity_kind"],
+        identity_source = row["identity_source"],
+        identity_label  = row["identity_label"],
+    )
+
+
+def _ensure_schema(conn: sqlite3.Connection) -> None:
+    conn.executescript(_SCHEMA)
+    existing = {
+        row["name"]
+        for row in conn.execute("PRAGMA table_info(sessions)")
+    }
+
+    migrations = {
+        "identity_value": "ALTER TABLE sessions ADD COLUMN identity_value TEXT NOT NULL DEFAULT '—'",
+        "identity_kind": "ALTER TABLE sessions ADD COLUMN identity_kind TEXT NOT NULL DEFAULT 'none'",
+        "identity_source": "ALTER TABLE sessions ADD COLUMN identity_source TEXT NOT NULL DEFAULT 'none'",
+        "identity_label": "ALTER TABLE sessions ADD COLUMN identity_label TEXT",
+    }
+    for column, sql in migrations.items():
+        if column not in existing:
+            try:
+                conn.execute(sql)
+            except sqlite3.OperationalError as exc:
+                if "duplicate column name" not in str(exc).lower():
+                    raise
+
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_identity_value ON sessions (identity_value)")
+
+    conn.execute(
+        """
+        UPDATE sessions
+        SET identity_value = COALESCE(NULLIF(account, ''), '—')
+        WHERE COALESCE(identity_value, '') = ''
+        """
     )

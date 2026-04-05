@@ -6,11 +6,13 @@ from rich.progress import BarColumn, Progress, SpinnerColumn, TextColumn, TimeEl
 
 from ..agents import get_adapters
 from ..common.cache import SessionCache
+from ..common.identity_ingest import ingest_identity_telemetry
 
 
 def ensure_synced(cache: SessionCache, agents: list[str], *, force: bool = False) -> None:
     """Sync cache for the given agents, showing a progress bar if work is needed."""
     adapters = get_adapters(agents)
+    ingest_identity_telemetry(agents)
 
     # Quick pre-check: count files needing parse without doing it
     total_to_parse = 0
@@ -41,6 +43,7 @@ def ensure_synced(cache: SessionCache, agents: list[str], *, force: bool = False
                 total_to_parse += 1
 
     if total_to_parse == 0:
+        cache.apply_identity_overrides(agents)
         return  # All cached — silent fast path
 
     with Progress(
@@ -58,3 +61,4 @@ def ensure_synced(cache: SessionCache, agents: list[str], *, force: bool = False
 
         for adapter in adapters:
             cache.sync(adapter, force=force, progress_callback=cb)
+    cache.apply_identity_overrides(agents)

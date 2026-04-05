@@ -14,7 +14,9 @@ from ..agents.catalog import get_agent_location
 from ..billing.pricing import pricing_cache_path
 from ..billing.providers import ALL_PROVIDERS, get_providers
 from ..common.cache import CACHE_PATH
-from ..common.formatting import agent_style, make_table, print_table, provider_style, strip_home
+from ..common.formatting import abbreviate_path, agent_style, fmt_ts, make_table, print_table, provider_style, strip_home
+from ..common.identity_config import load_identity_agent_config
+from ..common.identity_store import DB_PATH as IDENTITY_DB_PATH, IdentityStore
 from ..common.paths import app_cache_dir, app_config_dir, app_data_dir
 
 
@@ -29,13 +31,20 @@ def command() -> None:
     table.add_section()
     _add_agents_section(table)
     table.add_section()
+    _add_identity_section(table)
+    table.add_section()
     _add_billing_section(table)
 
     print_table(table)
 
 
 def _add_runtime_section(table) -> None:
-    table.add_row("Runtime", "Python", _status_text(True, ok_label="active"), Text(sys.executable, style="dim"))
+    table.add_row(
+        "Runtime",
+        "Python",
+        _status_text(True, ok_label="active"),
+        Text(abbreviate_path(strip_home(sys.executable), max_len=48), style="dim"),
+    )
 
 
 def _add_storage_section(table) -> None:
@@ -44,6 +53,7 @@ def _add_storage_section(table) -> None:
         ("Data dir", app_data_dir()),
         ("Cache dir", app_cache_dir()),
         ("Sessions DB", CACHE_PATH),
+        ("Identity DB", IDENTITY_DB_PATH),
         ("Pricing cache", pricing_cache_path()),
     ]
     for index, (label, path) in enumerate(rows):
@@ -51,7 +61,7 @@ def _add_storage_section(table) -> None:
             "Storage" if index == 0 else "",
             label,
             _status_text(path.exists()),
-            Text(strip_home(str(path)), style="dim"),
+            Text(abbreviate_path(strip_home(str(path)), max_len=48), style="dim"),
         )
 
 
@@ -67,7 +77,7 @@ def _add_agents_section(table) -> None:
         cached_count = cached_counts.get(adapter.name, 0)
 
         detail = (
-            f"root={strip_home(str(location.root_dir))}  "
+            f"root={abbreviate_path(strip_home(str(location.root_dir)), max_len=24)}  "
             f"sessions={session_count}  plans={plan_count}  cached={cached_count}"
         )
 
@@ -77,6 +87,28 @@ def _add_agents_section(table) -> None:
             _status_text(root_exists, ok_label="ready", bad_label="missing"),
             Text(detail, style="dim"),
         )
+
+
+def _add_identity_section(table) -> None:
+    setup_state = _identity_setup_state()
+    for index, agent_name in enumerate(("claude", "gemini")):
+        config = load_identity_agent_config(agent_name)
+        configured = bool(config)
+        transport = config.get("transport", "—")
+        runtime = config.get("runtime_mode", "—")
+        raw_path = abbreviate_path(strip_home(config.get("raw_path", "—")))
+        last_ingest = fmt_ts(setup_state.get(f"identity.{agent_name}.last_ingest_at"))
+        detail = (
+            f"transport={transport}  runtime={runtime}  "
+            f"last_ingest={last_ingest}  raw={raw_path}"
+        )
+        table.add_row(
+            "Identity" if index == 0 else "",
+            Text(agent_name, style=f"bold {agent_style(agent_name)}"),
+            _status_text(configured, ok_label="configured", bad_label="not set"),
+            Text(detail, style="dim"),
+        )
+
 
 def _add_billing_section(table) -> None:
     env_rows = [
@@ -121,6 +153,19 @@ def _cache_counts() -> dict[str, int]:
         return {}
     finally:
         conn.close()
+
+
+def _identity_setup_state() -> dict[str, str | None]:
+    if not IDENTITY_DB_PATH.exists():
+        return {}
+
+    store = IdentityStore()
+    try:
+        return store.get_setup_state()
+    except sqlite3.Error:
+        return {}
+    finally:
+        store.close()
 
 
 def _status_text(ok: bool, *, ok_label: str = "yes", bad_label: str = "no") -> Text:

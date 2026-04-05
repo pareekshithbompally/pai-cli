@@ -3,7 +3,7 @@
 Sessions  : ~/.gemini/tmp/<project>/chats/session-*.json
 Logs      : ~/.gemini/tmp/<project>/logs.json  (flat message log, secondary)
 Tokens    : per gemini-response message → tokens.{input, output, cached, thoughts}
-Account   : always "Personal" (single account)
+Identity  : auth mode from ~/.gemini/settings.json when available
 
 Session file structure:
 {
@@ -24,7 +24,7 @@ import json
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ..common.accounts import fixed_account
+from ..common.accounts import auth_mode_identity, unknown_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
@@ -89,18 +89,22 @@ class GeminiAdapter(AgentAdapter):
             return None
 
         display_project = summary[:40] if summary else project
+        identity = _gemini_identity(_read_auth_mode(_LOCATION.root_dir / "settings.json"))
 
         return SessionRecord(
             agent      = self.name,
             file_path  = str(path),
             session_id = session_id,
-            account    = fixed_account(self.name),
             project    = display_project,
             msg_count  = msg_count,
             first_ts   = first_ts,
             last_ts    = last_ts,
             in_tokens  = in_tokens,
             out_tokens = out_tokens,
+            identity_value  = identity.value,
+            identity_kind   = identity.kind,
+            identity_source = identity.source,
+            identity_label  = identity.label,
         )
 
     def iter_messages(self, path: Path) -> Iterator[MessageRecord]:
@@ -140,3 +144,32 @@ def _extract_user_text(msg: dict) -> str:
                 parts.append(item)
         return "".join(parts).strip()
     return ""
+
+
+def _read_auth_mode(settings_path: Path) -> str:
+    if not settings_path.exists():
+        return ""
+    try:
+        data = json.loads(settings_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return ""
+
+    if not isinstance(data, dict):
+        return ""
+
+    security = data.get("security")
+    if not isinstance(security, dict):
+        return ""
+
+    auth = security.get("auth")
+    if not isinstance(auth, dict):
+        return ""
+
+    selected = auth.get("selectedType")
+    return selected.strip() if isinstance(selected, str) else ""
+
+
+def _gemini_identity(auth_mode: str):
+    if auth_mode:
+        return auth_mode_identity(auth_mode, "gemini-settings")
+    return unknown_identity("gemini-none")

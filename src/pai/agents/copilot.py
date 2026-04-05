@@ -6,7 +6,7 @@ Metadata              : ~/.copilot/session-state/<uuid>/workspace.yaml
 Plans                 : ~/.copilot/session-state/<uuid>/plan.md
 Tokens                : session.shutdown → data.modelMetrics.<model>.usage
                         Available only in sessions that completed cleanly.
-Account               : always "Personal" (single account)
+Identity              : login from ~/.copilot/config.json when available
 """
 
 from __future__ import annotations
@@ -15,13 +15,14 @@ import json
 from pathlib import Path
 from typing import Iterator, Optional
 
-from ..common.accounts import fixed_account
+from ..common.accounts import global_account_identity, unknown_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
 
 _LOCATION = get_agent_location("copilot")
 SESSION_STATE_DIR = _LOCATION.root_dir / "session-state"
+CONFIG_FILE = _LOCATION.root_dir / "config.json"
 
 
 class CopilotAdapter(AgentAdapter):
@@ -37,6 +38,7 @@ class CopilotAdapter(AgentAdapter):
     def parse_session(self, path: Path) -> Optional[SessionRecord]:
         session_id = _session_id_from_path(path)
         project    = _read_cwd_from_workspace(path) or _cwd_from_events(path)
+        identity   = _read_copilot_identity(CONFIG_FILE)
 
         msg_count = 0
         first_ts = last_ts = None
@@ -79,13 +81,16 @@ class CopilotAdapter(AgentAdapter):
             agent      = self.name,
             file_path  = str(path),
             session_id = session_id,
-            account    = fixed_account(self.name),
             project    = project,
             msg_count  = msg_count,
             first_ts   = first_ts,
             last_ts    = last_ts,
             in_tokens  = in_tokens,
             out_tokens = out_tokens,
+            identity_value  = identity.value,
+            identity_kind   = identity.kind,
+            identity_source = identity.source,
+            identity_label  = identity.label,
         )
 
     def iter_messages(self, path: Path) -> Iterator[MessageRecord]:
@@ -194,3 +199,32 @@ def _abbreviate_path(path: str) -> str:
     if len(path) > 36:
         path = path[:10] + "…" + path[-24:]
     return path
+
+
+def _read_copilot_identity(config_path: Path):
+    if not config_path.exists():
+        return unknown_identity("copilot-none")
+    try:
+        data = json.loads(config_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return unknown_identity("copilot-none")
+
+    if not isinstance(data, dict):
+        return unknown_identity("copilot-none")
+
+    last = data.get("last_logged_in_user")
+    if isinstance(last, dict):
+        login = last.get("login")
+        if isinstance(login, str) and login.strip():
+            return global_account_identity(login, "copilot-config")
+
+    users = data.get("logged_in_users")
+    if isinstance(users, list):
+        for entry in users:
+            if not isinstance(entry, dict):
+                continue
+            login = entry.get("login")
+            if isinstance(login, str) and login.strip():
+                return global_account_identity(login, "copilot-config")
+
+    return unknown_identity("copilot-none")
