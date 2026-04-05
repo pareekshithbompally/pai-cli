@@ -1,0 +1,35 @@
+[build-system]
+requires = ["setuptools>=69", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "pai-cli"
+version = "0.1.0"
+description = "Session, billing, cache, and diagnostics CLI for AI agent workflows."
+requires-python = ">=3.10"
+dependencies = [
+  "click>=8.1",
+  "rich>=13.7",
+  "requests>=2.31",
+  "python-dateutil>=2.9",
+]
+
+[project.optional-dependencies]
+google = [
+  "google-cloud-bigquery>=3.25",
+  "db-dtypes>=1.2",
+]
+
+[project.scripts]
+pai = "pai.main:main"
+
+[project.urls]
+Homepage = "https://github.com/pareekshithbompally/pai-cli"
+Repository = "https://github.com/pareekshithbompally/pai-cli"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["pai*"]
