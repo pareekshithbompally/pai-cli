@@ -29,6 +29,18 @@ def identity_raw_path(agent: str) -> Path:
     return app_data_path("identity", "raw", f"{agent}-{suffix}")
 
 
+def legacy_identity_raw_paths(agent: str) -> tuple[Path, ...]:
+    if agent == "claude":
+        return (Path.home() / ".claude" / "custom-user-work" / "claude-otel-raw.jsonl",)
+    return ()
+
+
+def legacy_identity_session_map_path(agent: str) -> Path | None:
+    if agent == "claude":
+        return Path.home() / ".claude" / "custom-user-work" / "session-accounts.jsonl"
+    return None
+
+
 def load_identity_agent_config(agent: str) -> dict[str, str]:
     path = identity_agent_config_path(agent)
     if not path.exists():

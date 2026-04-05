@@ -113,6 +113,10 @@ That flow:
 
 Claude identity capture uses OTLP telemetry and a local collector config managed by `pai`.
 
+`pai` stores ingested Claude identity in its own XDG-managed database under `~/.local/share/pai/`.
+If an older `~/.claude/custom-user-work/` telemetry/session-map setup still exists, `pai`
+will import that legacy data during sync so you can migrate off the old hook-based flow.
+
 Minimal env:
 
 ```bash

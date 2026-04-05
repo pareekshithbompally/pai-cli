@@ -175,6 +175,7 @@ class SessionCache:
         return [dict(r) for r in rows]
 
     def apply_identity_overrides(self, agents: Optional[list[str]] = None) -> int:
+        updated = self._reset_claude_identities(agents)
         store = IdentityStore()
         try:
             rows = []
@@ -190,7 +191,6 @@ class SessionCache:
         finally:
             store.close()
 
-        updated = 0
         for row in rows:
             identity_value = row["identity_value"]
             identity_label = alias_map.get((row["agent"], identity_value))
@@ -243,6 +243,30 @@ class SessionCache:
         if updated:
             self._conn.commit()
         return updated
+
+    def _reset_claude_identities(self, agents: Optional[list[str]]) -> int:
+        if agents is not None and "claude" not in agents:
+            return 0
+
+        cur = self._conn.execute(
+            """
+            UPDATE sessions
+            SET identity_value = '—',
+                identity_kind = 'none',
+                identity_source = 'none',
+                identity_label = NULL,
+                account = '—'
+            WHERE agent = 'claude'
+              AND (
+                  identity_value != '—'
+                  OR identity_kind != 'none'
+                  OR identity_source != 'none'
+                  OR identity_label IS NOT NULL
+                  OR account != '—'
+              )
+            """
+        )
+        return cur.rowcount
 
     # ── Internal ──────────────────────────────────────────────────────────────
 

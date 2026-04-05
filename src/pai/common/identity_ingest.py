@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 import json
 from pathlib import Path
 
-from .identity_config import identity_raw_path, load_identity_agent_config
+from .identity_config import (
+    identity_raw_path,
+    legacy_identity_raw_paths,
+    legacy_identity_session_map_path,
+    load_identity_agent_config,
+)
 from .identity_store import IdentityStore
 
 _PARTIAL = object()
@@ -30,9 +35,43 @@ def ingest_identity_telemetry(agents: list[str]) -> dict[str, int]:
 
 def _ingest_agent(store: IdentityStore, agent: str) -> int:
     config = load_identity_agent_config(agent)
-    source_path = Path(config.get("raw_path") or identity_raw_path(agent))
-    source_path.parent.mkdir(parents=True, exist_ok=True)
+    primary_source_path = Path(config.get("raw_path") or identity_raw_path(agent))
+    primary_source_path.parent.mkdir(parents=True, exist_ok=True)
 
+    updated_at = _now_iso()
+    ingested = 0
+    seen_paths: set[Path] = set()
+
+    for source_path in (primary_source_path, *legacy_identity_raw_paths(agent)):
+        if source_path in seen_paths:
+            continue
+        seen_paths.add(source_path)
+        ingested += _ingest_jsonl_source(
+            store,
+            agent,
+            source_path,
+            source_name=f"{agent}-telemetry",
+            updated_at=updated_at,
+        )
+
+    session_map_path = legacy_identity_session_map_path(agent)
+    if session_map_path is not None:
+        ingested += _ingest_legacy_session_map(store, agent, session_map_path, updated_at=updated_at)
+
+    if ingested:
+        store.set_setup_value(f"identity.{agent}.last_ingest_at", updated_at, updated_at=updated_at, commit=False)
+    store.commit()
+    return ingested
+
+
+def _ingest_jsonl_source(
+    store: IdentityStore,
+    agent: str,
+    source_path: Path,
+    *,
+    source_name: str,
+    updated_at: str,
+) -> int:
     if not source_path.exists():
         return 0
 
@@ -66,17 +105,62 @@ def _ingest_agent(store: IdentityStore, agent: str) -> int:
                     session_id,
                     identity_value,
                     "session_account",
-                    f"{agent}-telemetry",
+                    source_name,
                     seen_at=seen_at,
                     commit=False,
                 )
                 ingested += 1
 
-    updated_at = _now_iso()
     store.set_offset(agent, str(source_path), current_offset, updated_at=updated_at, commit=False)
-    if ingested:
-        store.set_setup_value(f"identity.{agent}.last_ingest_at", updated_at, updated_at=updated_at, commit=False)
-    store.commit()
+    return ingested
+
+
+def _ingest_legacy_session_map(store: IdentityStore, agent: str, source_path: Path, *, updated_at: str) -> int:
+    if not source_path.exists():
+        return 0
+
+    file_size = source_path.stat().st_size
+    offset = store.get_offset(agent, str(source_path))
+    if offset > file_size:
+        offset = 0
+
+    ingested = 0
+    current_offset = offset
+    with source_path.open("rb") as handle:
+        handle.seek(offset)
+        while True:
+            start_offset = handle.tell()
+            raw_line = handle.readline()
+            if not raw_line:
+                break
+
+            parsed = _parse_json_line(raw_line)
+            if parsed is _PARTIAL:
+                handle.seek(start_offset)
+                break
+
+            current_offset = handle.tell()
+            if not isinstance(parsed, dict):
+                continue
+
+            session_id = str(parsed.get("session_id") or "").strip()
+            identity_value = str(parsed.get("email") or "").strip()
+            seen_at = str(parsed.get("timestamp") or "").strip() or updated_at
+            if not session_id or not identity_value:
+                continue
+
+            store.upsert_identity_event(
+                agent,
+                session_id,
+                identity_value,
+                "session_account",
+                "claude-session-map-legacy",
+                seen_at=seen_at,
+                commit=False,
+            )
+            ingested += 1
+
+    store.set_offset(agent, str(source_path), current_offset, updated_at=updated_at, commit=False)
     return ingested
 
 

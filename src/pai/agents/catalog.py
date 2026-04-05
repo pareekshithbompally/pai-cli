@@ -47,9 +47,6 @@ def _build_locations() -> dict[str, AgentLocation]:
             root_dir=claude_root,
             session_globs=("projects/*/*.jsonl",),
             plan_globs=("plans/*.md",),
-            files={
-                "accounts": claude_root / "custom-user-work" / "session-accounts.jsonl",
-            },
         ),
         "codex": AgentLocation(
             name="codex",

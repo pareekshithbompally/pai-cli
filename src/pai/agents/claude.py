@@ -10,29 +10,18 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator
 
-from ..common.accounts import load_claude_accounts, resolve_claude_identity
+from ..common.accounts import unknown_identity
 from ..common.types import MessageRecord, PlanRecord, SessionRecord
 from .base import AgentAdapter
 from .catalog import get_agent_location
 
 _LOCATION = get_agent_location("claude")
-PROJECTS_DIR = _LOCATION.root_dir / "projects"
-ACCOUNTS_FILE = _LOCATION.files["accounts"]
 
 
 class ClaudeAdapter(AgentAdapter):
     name = "claude"
-
-    def __init__(self) -> None:
-        self._accounts: Optional[dict[str, str]] = None
-
-    @property
-    def accounts(self) -> dict[str, str]:
-        if self._accounts is None:
-            self._accounts = load_claude_accounts(ACCOUNTS_FILE)
-        return self._accounts or {}
 
     # ── Discovery ─────────────────────────────────────────────────────────────
 
@@ -43,7 +32,7 @@ class ClaudeAdapter(AgentAdapter):
 
     def parse_session(self, path: Path) -> Optional[SessionRecord]:
         session_id = path.stem
-        identity   = resolve_claude_identity(session_id, self.accounts)
+        identity   = unknown_identity("claude-none")
         project    = _abbreviate_project(path.parent.name)
 
         msg_count = 0

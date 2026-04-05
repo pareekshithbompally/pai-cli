@@ -3,8 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
-from pathlib import Path
 
 _UNKNOWN = "—"
 
@@ -43,36 +41,6 @@ def auth_mode_identity(value: str, source: str, *, label: str | None = None) -> 
 
 def provider_identity(value: str, source: str, *, label: str | None = None) -> IdentityInfo:
     return _identity(value, "provider", source, label=label)
-
-
-def load_claude_accounts(accounts_file: Path) -> dict[str, str]:
-    """Return {session_id: raw_email} from an optional session map file."""
-    result: dict[str, str] = {}
-    if not accounts_file.exists():
-        return result
-
-    with accounts_file.open(encoding="utf-8") as f:
-        for line in f:
-            try:
-                entry = json.loads(line)
-            except json.JSONDecodeError:
-                continue
-
-            if not isinstance(entry, dict):
-                continue
-
-            session_id = str(entry.get("session_id") or "").strip()
-            email = str(entry.get("email") or "").strip()
-            if session_id and email:
-                result[session_id] = email
-    return result
-
-
-def resolve_claude_identity(session_id: str, accounts: dict[str, str]) -> IdentityInfo:
-    email = accounts.get(session_id, "").strip()
-    if email:
-        return session_account_identity(email, "claude-session-map")
-    return unknown_identity("claude-none")
 
 
 def _identity(value: str, kind: str, source: str, *, label: str | None = None) -> IdentityInfo:
